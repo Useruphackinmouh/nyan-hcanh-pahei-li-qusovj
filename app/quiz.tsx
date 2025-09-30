@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from "react";
 import { Stack, router } from "expo-router";
-import { ScrollView, StyleSheet, View, Text, Pressable, Alert } from "react-native";
+import { ScrollView, StyleSheet, View, Text, Pressable, Alert, Modal } from "react-native";
 import { Cairo_400Regular, Cairo_600SemiBold, Cairo_700Bold } from '@expo-google-fonts/cairo';
 
 interface Question {
@@ -21,6 +21,8 @@ export default function QuizScreen() {
   const [totalQuestions] = useState(10); // Reduced for demo
   const [showResult, setShowResult] = useState(false);
   const [answered, setAnswered] = useState(false);
+  const [showFailureModal, setShowFailureModal] = useState(false);
+  const [showFeedback, setShowFeedback] = useState(false);
 
   // Sample questions - in a real app, these would come from a database
   const questions: Question[] = [
@@ -107,10 +109,10 @@ export default function QuizScreen() {
   ];
 
   const handleAnswerSelect = (answerIndex: number) => {
-    if (answered) return;
+    if (answered || showFeedback) return;
     
     setSelectedAnswer(answerIndex);
-    setAttempts(attempts + 1);
+    setShowFeedback(true);
     
     const isCorrect = answerIndex === questions[currentQuestion].correctAnswer;
     
@@ -132,20 +134,20 @@ export default function QuizScreen() {
         }
       }, 2000);
     } else {
-      if (attempts >= 2) {
-        // No more attempts
-        setAnswered(true);
+      // Wrong answer
+      const newAttempts = attempts + 1;
+      setAttempts(newAttempts);
+      
+      if (newAttempts >= 3) {
+        // No more attempts - show failure modal
         setTimeout(() => {
-          if (currentQuestion < totalQuestions - 1) {
-            nextQuestion();
-          } else {
-            setShowResult(true);
-          }
-        }, 2000);
+          setShowFailureModal(true);
+        }, 1500);
       } else {
-        // Reset selection for next attempt
+        // Reset for next attempt
         setTimeout(() => {
           setSelectedAnswer(null);
+          setShowFeedback(false);
         }, 1500);
       }
     }
@@ -156,18 +158,31 @@ export default function QuizScreen() {
     setSelectedAnswer(null);
     setAttempts(0);
     setAnswered(false);
+    setShowFeedback(false);
+    setShowFailureModal(false);
+  };
+
+  const handleNextQuestionFromModal = () => {
+    if (currentQuestion < totalQuestions - 1) {
+      nextQuestion();
+    } else {
+      setShowResult(true);
+    }
+  };
+
+  const handleReturnToMainMenu = () => {
+    router.push('/');
   };
 
   const getAnswerStyle = (index: number) => {
-    if (selectedAnswer === null) return styles.option;
+    if (!showFeedback) return styles.option;
     
-    if (index === questions[currentQuestion].correctAnswer) {
-      return [styles.option, styles.correctOption];
-    } else if (index === selectedAnswer) {
-      return [styles.option, styles.wrongOption];
-    } else {
-      return [styles.option, styles.disabledOption];
+    if (selectedAnswer === index) {
+      const isCorrect = index === questions[currentQuestion].correctAnswer;
+      return [styles.option, isCorrect ? styles.correctOption : styles.wrongOption];
     }
+    
+    return [styles.option, styles.disabledOption];
   };
 
   const getScorePercentage = () => {
@@ -307,7 +322,7 @@ export default function QuizScreen() {
                 key={index}
                 style={getAnswerStyle(index)}
                 onPress={() => handleAnswerSelect(index)}
-                disabled={answered}
+                disabled={answered || showFeedback}
                 android_ripple={{ color: 'rgba(0,0,0,0.1)' }}
               >
                 <View style={styles.optionContent}>
@@ -320,16 +335,6 @@ export default function QuizScreen() {
             ))}
           </View>
 
-          {/* Explanation */}
-          {answered && questions[currentQuestion].explanation && (
-            <View style={styles.explanationCard}>
-              <Text style={styles.explanationTitle}>التفسير:</Text>
-              <Text style={styles.explanationText}>
-                {questions[currentQuestion].explanation}
-              </Text>
-            </View>
-          )}
-
           {/* Score Display */}
           <View style={styles.scoreDisplay}>
             <Text style={styles.scoreDisplayText}>
@@ -337,6 +342,72 @@ export default function QuizScreen() {
             </Text>
           </View>
         </ScrollView>
+
+        {/* Failure Modal */}
+        <Modal
+          visible={showFailureModal}
+          transparent={true}
+          animationType="fade"
+          onRequestClose={() => setShowFailureModal(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalEmoji}>😔</Text>
+                <Text style={styles.modalTitle}>انتهت المحاولات</Text>
+                <Text style={styles.modalSubtitle}>
+                  لقد استنزفت محاولاتك الثلاث للإجابة عن هذا السؤال
+                </Text>
+              </View>
+
+              <View style={styles.correctAnswerSection}>
+                <Text style={styles.correctAnswerTitle}>الإجابة الصحيحة:</Text>
+                <View style={styles.correctAnswerBox}>
+                  <Text style={styles.correctAnswerLetter}>
+                    {String.fromCharCode(65 + questions[currentQuestion].correctAnswer)}
+                  </Text>
+                  <Text style={styles.correctAnswerText}>
+                    {questions[currentQuestion].options[questions[currentQuestion].correctAnswer]}
+                  </Text>
+                </View>
+                
+                {questions[currentQuestion].explanation && (
+                  <View style={styles.explanationSection}>
+                    <Text style={styles.explanationTitle}>التفسير:</Text>
+                    <Text style={styles.explanationText}>
+                      {questions[currentQuestion].explanation}
+                    </Text>
+                  </View>
+                )}
+              </View>
+
+              <View style={styles.modalButtons}>
+                {currentQuestion < totalQuestions - 1 ? (
+                  <Pressable
+                    style={[styles.modalButton, styles.nextButton]}
+                    onPress={handleNextQuestionFromModal}
+                  >
+                    <Text style={styles.modalButtonText}>⏭️ السؤال التالي</Text>
+                  </Pressable>
+                ) : (
+                  <Pressable
+                    style={[styles.modalButton, styles.finishButton]}
+                    onPress={() => setShowResult(true)}
+                  >
+                    <Text style={styles.modalButtonText}>🏁 إنهاء الاختبار</Text>
+                  </Pressable>
+                )}
+                
+                <Pressable
+                  style={[styles.modalButton, styles.homeButton]}
+                  onPress={handleReturnToMainMenu}
+                >
+                  <Text style={styles.modalButtonText}>🏠 العودة للقائمة الرئيسية</Text>
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        </Modal>
       </View>
     </>
   );
@@ -469,29 +540,6 @@ const styles = StyleSheet.create({
     fontFamily: 'Cairo_400Regular',
     textAlign: 'right',
   },
-  explanationCard: {
-    backgroundColor: '#E3F2FD',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 24,
-    borderLeftWidth: 4,
-    borderLeftColor: '#2196F3',
-  },
-  explanationTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#1976D2',
-    fontFamily: 'Cairo_600SemiBold',
-    marginBottom: 8,
-    textAlign: 'right',
-  },
-  explanationText: {
-    fontSize: 14,
-    color: '#1565C0',
-    fontFamily: 'Cairo_400Regular',
-    textAlign: 'right',
-    lineHeight: 22,
-  },
   scoreDisplay: {
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
@@ -587,6 +635,130 @@ const styles = StyleSheet.create({
     backgroundColor: '#28A745',
   },
   actionButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontFamily: 'Cairo_600SemiBold',
+  },
+  // Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 24,
+    width: '100%',
+    maxWidth: 400,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  modalHeader: {
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  modalEmoji: {
+    fontSize: 48,
+    marginBottom: 12,
+  },
+  modalTitle: {
+    fontSize: 22,
+    fontFamily: 'Cairo_700Bold',
+    color: '#DC3545',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  modalSubtitle: {
+    fontSize: 16,
+    fontFamily: 'Cairo_400Regular',
+    color: '#6C757D',
+    textAlign: 'center',
+    lineHeight: 24,
+  },
+  correctAnswerSection: {
+    marginBottom: 24,
+  },
+  correctAnswerTitle: {
+    fontSize: 16,
+    fontFamily: 'Cairo_600SemiBold',
+    color: '#28A745',
+    marginBottom: 12,
+    textAlign: 'right',
+  },
+  correctAnswerBox: {
+    backgroundColor: '#28A74510',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 2,
+    borderColor: '#28A745',
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  correctAnswerLetter: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#28A745',
+    color: '#FFFFFF',
+    textAlign: 'center',
+    lineHeight: 32,
+    fontSize: 14,
+    fontFamily: 'Cairo_600SemiBold',
+    marginRight: 12,
+  },
+  correctAnswerText: {
+    flex: 1,
+    fontSize: 16,
+    color: '#28A745',
+    fontFamily: 'Cairo_600SemiBold',
+    textAlign: 'right',
+  },
+  explanationSection: {
+    backgroundColor: '#E3F2FD',
+    borderRadius: 12,
+    padding: 16,
+    borderLeftWidth: 4,
+    borderLeftColor: '#2196F3',
+  },
+  explanationTitle: {
+    fontSize: 14,
+    fontFamily: 'Cairo_600SemiBold',
+    color: '#1976D2',
+    marginBottom: 8,
+    textAlign: 'right',
+  },
+  explanationText: {
+    fontSize: 14,
+    color: '#1565C0',
+    fontFamily: 'Cairo_400Regular',
+    textAlign: 'right',
+    lineHeight: 22,
+  },
+  modalButtons: {
+    gap: 12,
+  },
+  modalButton: {
+    borderRadius: 12,
+    padding: 16,
+    alignItems: 'center',
+  },
+  nextButton: {
+    backgroundColor: '#28A745',
+  },
+  finishButton: {
+    backgroundColor: '#17A2B8',
+  },
+  homeButton: {
+    backgroundColor: '#6C757D',
+  },
+  modalButtonText: {
     color: '#FFFFFF',
     fontSize: 16,
     fontFamily: 'Cairo_600SemiBold',
